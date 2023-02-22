@@ -4,6 +4,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #define HAVE_STRUCT_TIMESPEC
 #define DT 0.05
+#define EMPTY_VALUE -9999
 
 #include <stdio.h> // printf
 #include <math.h> // ceil/floor
