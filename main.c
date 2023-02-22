@@ -1,9 +1,7 @@
 #include "header.h"
-#include <stdlib.h>
-#include <stdio.h>
-#include <math.h>
+#include "thread_pool.h"
 
-thread_pool* tp;
+threadpool tp;
 int thread_count;
 int bodies, timeSteps;
 double *masses, GravConstant;
@@ -74,7 +72,7 @@ void resolveCollisions()
 {
     int i, j;
 
-    for (i = 0; i < bodies - 1; i++)
+    for (i = 0; i < bodies - 1; i++) {
         for (j = i + 1; j < bodies; j++)
         {
             if (positions[i].x == positions[j].x && positions[i].y == positions[j].y)
@@ -84,6 +82,7 @@ void resolveCollisions()
                 velocities[j] = temp;
             }
         }
+    }
 }
 
 //void computeAccelerations()
@@ -166,25 +165,23 @@ void computePositions(void* rank) {
 }
 
 void simulate() {
-    // needs position
-    //computeAccelerations();
-    // needs velocity + position
-    //resolveCollisions();
-    // needs velocity
-    //computePositions();
-    // needs acceleration
-    //computeVelocities();
+    // needs position, changes acceleration
     for (int i = 0; i < thread_count; i++) {
-      thread_pool_request(tp, computeAccelerations, (void*)i);
+      thpool_add_work(tp, computeAccelerations, (void*)i);
     }
+    //any of 2 wait, before or after collisions
+    thpool_wait(tp);
+    // needs velocity + position, changes velocity
     resolveCollisions();
+    //thpool_wait(tp);
+    // needs velocity, changes position
     for (int i = 0; i < thread_count; i++) {
-      thread_pool_request(tp, computePositions, (void*)i);
+      thpool_add_work(tp, computePositions, (void*)i);
     }
-    //Sleep(100);
-    thread_pool_wait(tp);
+    thpool_wait(tp);
+    // needs acceleration, changes velocity
     for (int i = 0; i < thread_count; i++) {
-      thread_pool_request(tp, computeVelocities, (void*)i);
+      thpool_add_work(tp, computeVelocities, (void*)i);
     }
 }
 
@@ -193,14 +190,14 @@ int main(int argC, char *argV[]) {
 
     thread_count = atoi(argV[2]);
 
-    tp = thread_pool_create(thread_count);
+    tp = thpool_init(thread_count);
     if (argC < 2) {
         printf("Usage : %s <file name containing system configuration data>", argV[0]);
     } else {
         initiateSystem(argV[1]);
-        //printf("Body   :     x              y           vx              vy   ");
+        printf("Body   :     x              y           vx              vy   ");
         for (i = 0; i < timeSteps; i++) {
-            //printf("\nCycle %d\n", i + 1);
+            printf("\nCycle %d\n", i + 1);
             simulate();
             for (j = 0; j < bodies; j++) {
                 printf("Body %d : %lf\t%lf\t%lf\t%lf\n", j + 1, positions[j].x, positions[j].y, velocities[j].x, velocities[j].y);
@@ -208,134 +205,6 @@ int main(int argC, char *argV[]) {
         }
     }
 
-    thread_pool_destroy(tp);
+    thpool_destroy(tp);
     return 0;
 }
-
-
-
-
-
-
-//#include "header.h"
-//#include <stdlib.h>
-//#include <stdio.h>
-//#include <math.h>
-//
-//int bodies, timeSteps;
-//double *masses, GravConstant;
-//vector *positions, *velocities, *accelerations;
-//
-//vector addVectors(vector a, vector b) {
-//    vector c = {a.x + b.x, a.y + b.y};
-//
-//    return c;
-//}
-//
-//vector scaleVector(double b, vector a) {
-//    vector c = {b * a.x, b * a.y};
-//
-//    return c;
-//}
-//
-//vector subtractVectors(vector a, vector b) {
-//    vector c = {a.x - b.x, a.y - b.y};
-//
-//    return c;
-//}
-//
-//double mod(vector a) {
-//    return sqrt(a.x * a.x + a.y * a.y);
-//}
-//
-//void initiateSystem(char *fileName) {
-//    int i;
-//    FILE *fp = fopen(fileName, "r");
-//
-//    fscanf(fp, "%lf%d%d", &GravConstant, &bodies, &timeSteps);
-//
-//    masses = (double *)malloc(bodies * sizeof(double));
-//    positions = (vector *)malloc(bodies * sizeof(vector));
-//    velocities = (vector *)malloc(bodies * sizeof(vector));
-//    accelerations = (vector *)malloc(bodies * sizeof(vector));
-//
-//    for (i = 0; i < bodies; i++) {
-//        fscanf(fp, "%lf", &masses[i]);
-//        fscanf(fp, "%lf%lf", &positions[i].x, &positions[i].y);
-//        fscanf(fp, "%lf%lf", &velocities[i].x, &velocities[i].y);
-//    }
-//
-//    fclose(fp);
-//}
-//
-//void resolveCollisions() {
-//    int i, j;
-//
-//    for (i = 0; i < bodies - 1; i++) {
-//        for (j = i + 1; j < bodies; j++) {
-//            if (positions[i].x == positions[j].x && positions[i].y == positions[j].y) {
-//                vector temp = velocities[i];
-//                velocities[i] = velocities[j];
-//                velocities[j] = temp;
-//            }
-//        }
-//    }
-//}
-//
-//void computeAccelerations() {
-//    int i, j;
-//
-//    for (i = 0; i < bodies; i++) {
-//        accelerations[i].x = 0;
-//        accelerations[i].y = 0;
-//        for (j = 0; j < bodies; j++) {
-//            if (i != j) {
-//                accelerations[i] = addVectors(accelerations[i], scaleVector(GravConstant * masses[j] / pow(mod(subtractVectors(positions[i], positions[j])), 3), subtractVectors(positions[j], positions[i])));
-//            }
-//        }
-//    }
-//}
-//
-//void computeVelocities() {
-//    int i;
-//
-//    for (i = 0; i < bodies; i++) {
-//        velocities[i] = addVectors(velocities[i], scaleVector(DT, accelerations[i]));
-//    }
-//}
-//
-//void computePositions()
-//{
-//    int i;
-//
-//    for (i = 0; i < bodies; i++) {
-//        positions[i] = addVectors(positions[i], scaleVector(DT,velocities[i]));
-//    }
-//}
-//
-//void simulate()
-//{
-//    computeAccelerations();
-//    computePositions();
-//    computeVelocities();
-//    resolveCollisions();
-//}
-//
-//int main(int argC, char *argV[]) {
-//    int i, j;
-//
-//    if (argC != 2) {
-//        printf("Usage : %s <file name containing system configuration data>", argV[0]);
-//    } else {
-//        initiateSystem(argV[1]);
-//        //printf("Body   :     x              y           vx              vy   ");
-//        for (i = 0; i < timeSteps; i++) {
-//            //printf("\nCycle %d\n", i + 1);
-//            simulate();
-//            for (j = 0; j < bodies; j++) {
-//                printf("Body %d : %lf\t%lf\t%lf\t%lf\n", j + 1, positions[j].x, positions[j].y, velocities[j].x, velocities[j].y);
-//            }
-//        }
-//    }
-//    return 0;
-//}
