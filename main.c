@@ -6,6 +6,8 @@ int thread_count;
 int bodies, timeSteps;
 double *masses, GravConstant;
 vector *positions, *velocities, *accelerations;
+pthread_rwlock_t rwlock;
+
 
 vector addVectors(vector a, vector b) {
     vector c = {a.x + b.x, a.y + b.y};
@@ -49,75 +51,27 @@ void initiateSystem(char *fileName) {
     fclose(fp);
 }
 
-//void resolveCollisions(void* rank) {
-//    long my_rank = (long)rank;
-//    double my_n = (double)(bodies-1) / thread_count;
-//    //both ceil if greedy, else both floor
-//    long m_first_i = ceil(my_n * my_rank);
-//    long m_last_i = ceil(my_n * (my_rank+1));
-//    int i, j;
-//
-//    for (i = m_first_i; i < bodies - 1; i++) {
-//        for (j = i + 1; j < bodies; j++) {
-//            if (positions[i].x == positions[j].x && positions[i].y == positions[j].y) {
-//                vector temp = velocities[i];
-//                velocities[i] = velocities[j];
-//                velocities[j] = temp;
-//            }
-//        }
-//    }
-//}
-
-void resolveCollisions()
-{
+void resolveCollisions(void* rank) {
+    long my_rank = (long)rank;
+    double my_n = (double)(bodies-1) / thread_count;
+    //both ceil if greedy, else both floor
+    long m_first_i = ceil(my_n * my_rank);
+    long m_last_i = ceil(my_n * (my_rank+1));
     int i, j;
 
-    for (i = 0; i < bodies - 1; i++) {
-        for (j = i + 1; j < bodies; j++)
-        {
-            if (positions[i].x == positions[j].x && positions[i].y == positions[j].y)
-            {
+    for (i = m_first_i; i < m_last_i; i++) {
+        for (j = i + 1; j < bodies; j++) {
+            if (positions[i].x == positions[j].x && positions[i].y == positions[j].y) {
+                // on 3 points works good without wrlock, but maybe because of rare collisions
+                //pthread_rwlock_wrlock(rwlock);
                 vector temp = velocities[i];
                 velocities[i] = velocities[j];
                 velocities[j] = temp;
+                //pthread_rwlock_unlock(rwlock);
             }
         }
     }
 }
-
-//void computeAccelerations()
-//{
-//    int i, j;
-//
-//    for (i = 0; i < bodies; i++)
-//    {
-//        accelerations[i].x = 0;
-//        accelerations[i].y = 0;
-//        for (j = 0; j < bodies; j++)
-//        {
-//            if (i != j)
-//            {
-//                accelerations[i] = addVectors(accelerations[i], scaleVector(GravConstant * masses[j] / pow(mod(subtractVectors(positions[i], positions[j])), 3), subtractVectors(positions[j], positions[i])));
-//            }
-//        }
-//    }
-//}
-//
-//void computeVelocities()
-//{
-//    int i;
-//
-//    for (i = 0; i < bodies; i++)
-//        velocities[i] = addVectors(velocities[i], scaleVector(DT, accelerations[i]));
-//}
-//
-//void computePositions()
-//{
-//    int i;
-//
-//    for (i = 0; i < bodies; i++)
-//        positions[i] = addVectors(positions[i], scaleVector(DT,velocities[i]));
-//}
 
 void computeAccelerations(void* rank) {
     long my_rank = (long)rank;
@@ -169,10 +123,12 @@ void simulate() {
     for (int i = 0; i < thread_count; i++) {
       thpool_add_work(tp, computeAccelerations, (void*)i);
     }
-    //any of 2 wait, before or after collisions
+    //any one of 2 wait, before or after collisions
     thpool_wait(tp);
     // needs velocity + position, changes velocity
-    resolveCollisions();
+    for (int i = 0; i < thread_count; i++) {
+      thpool_add_work(tp, resolveCollisions, (void*)i);
+    }
     //thpool_wait(tp);
     // needs velocity, changes position
     for (int i = 0; i < thread_count; i++) {
@@ -190,6 +146,8 @@ int main(int argC, char *argV[]) {
 
     thread_count = atoi(argV[2]);
 
+    pthread_rwlock_init(&rwlock, NULL);
+
     tp = thpool_init(thread_count);
     if (argC < 2) {
         printf("Usage : %s <file name containing system configuration data>", argV[0]);
@@ -206,5 +164,7 @@ int main(int argC, char *argV[]) {
     }
 
     thpool_destroy(tp);
+
+    pthread_rwlock_destroy(&rwlock);
     return 0;
 }
