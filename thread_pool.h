@@ -4,8 +4,20 @@
 #define _CRT_SECURE_NO_WARNINGS
 #define HAVE_STRUCT_TIMESPEC
 #include <stdio.h>
-#include <pthread.h> 
-#include <windows.h>
+#include <stdlib.h>
+#include <pthread.h>
+
+//#define __linux__
+//#undef _WIN32
+
+#ifdef _WIN32
+	#include <windows.h>
+	#define sleep Sleep
+#endif
+#ifdef __linux__
+	#include <sys/prctl.h>
+	#include <unistd.h>
+#endif
 
 typedef struct thpool_* threadpool;
 
