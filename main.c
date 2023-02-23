@@ -11,6 +11,7 @@ pthread_rwlock_t force_lock;
 int forces_count;
 vector** forces;
 
+
 vector addVectors(vector a, vector b) {
     vector c = {a.x + b.x, a.y + b.y};
 
@@ -55,22 +56,23 @@ void initiateSystem(char *fileName) {
     if (forces) {
         //fill x coordinate by rare large value, representing empty value
         for (i = 0; i < forces_count; i++) {
-          forces[i] = (vector*)malloc(bodies * sizeof(vector));
-          for (j = 0; j < bodies; j++) {
-            forces[i][j].x = EMPTY_VALUE;
-          }
+            forces[i] = (vector*)malloc(bodies * sizeof(vector));
+            for (j = 0; j < bodies; j++) {
+                forces[i][j].x = EMPTY_VALUE;
+            }
         }
     }
 
     fclose(fp);
 }
 
+
 void resolveCollisions(void* rank) {
     long my_rank = (long)rank;
-    double my_n = (double)(bodies-1) / thread_count;
+    double my_n = (double)(bodies - 1) / thread_count;
     //both ceil if greedy, else both floor
     long m_first_i = ceil(my_n * my_rank);
-    long m_last_i = ceil(my_n * (my_rank+1));
+    long m_last_i = ceil(my_n * (my_rank + 1));
     int i, j;
 
     for (i = m_first_i; i < m_last_i; i++) {
@@ -87,6 +89,7 @@ void resolveCollisions(void* rank) {
     }
 }
 
+
 void computeAccelerations(void* rank) {
     long my_rank = (long)rank;
     double my_n = (double)bodies / thread_count;
@@ -100,6 +103,7 @@ void computeAccelerations(void* rank) {
     long m_first_i = ceil(my_n * my_rank);
     long m_last_i = ceil(my_n * (my_rank+1));
     int i, j;
+
     int minus = -1;
     vector part_force;
     for (i = m_first_i; i < m_last_i; i++) {
@@ -110,16 +114,18 @@ void computeAccelerations(void* rank) {
             if (i != j) {
                 if ((int)forces[i][j].x != EMPTY_VALUE) {
                     part_force = scaleVector(minus, forces[i][j]);
-                } else if ((int)forces[j][i].x != EMPTY_VALUE) {
+                }
+                else if ((int)forces[j][i].x != EMPTY_VALUE) {
                     part_force = forces[j][i];
-                } else {
-                     forces[j][i] = scaleVector(GravConstant * masses[j] / pow(mod(subtractVectors(positions[i], positions[j])), 3), subtractVectors(positions[j], positions[i]));
-                     part_force = forces[j][i];
+                }
+                else {
+                    forces[j][i] = scaleVector(GravConstant * masses[j] / pow(mod(subtractVectors(positions[i], positions[j])), 3), subtractVectors(positions[j], positions[i]));
+                    part_force = forces[j][i];
                 }
                 accelerations[i] = addVectors(accelerations[i], part_force);
             }
+            pthread_rwlock_unlock(&force_lock);
         }
-        pthread_rwlock_unlock(&force_lock);
     }
 }
 
@@ -154,16 +160,17 @@ void simulate() {
     for (int i = 0; i < thread_count; i++) {
       thpool_add_work(tp, computeAccelerations, (void*)i);
     }
+    //any of 2 wait, before or after collisions
     thpool_wait(tp);
     for (int i = 0; i < bodies; i++) {
-      for (int j = 0; j < bodies; j++) {
-        forces[i][j].x = EMPTY_VALUE;
-      }
+        for (int j = 0; j < bodies; j++) {
+            forces[i][j].x = EMPTY_VALUE;
+        }
     }
     //thpool_wait(tp);
     // needs velocity + position, changes velocity
     for (int i = 0; i < thread_count; i++) {
-      thpool_add_work(tp, resolveCollisions, (void*)i);
+        thpool_add_work(tp, resolveCollisions, (void*)i);
     }
     //thpool_wait(tp);
     // needs velocity, changes position
@@ -177,8 +184,87 @@ void simulate() {
     }
 }
 
+void resolveCollisionsDefault()
+{
+    int i, j;
+
+    for (i = 0; i < bodies - 1; i++)
+        for (j = i + 1; j < bodies; j++)
+        {
+            if (positions[i].x == positions[j].x && positions[i].y == positions[j].y)
+            {
+                vector temp = velocities[i];
+                velocities[i] = velocities[j];
+                velocities[j] = temp;
+            }
+        }
+}
+
+void computeAccelerationsDefault()
+{
+    int i, j;
+
+    for (i = 0; i < bodies; i++)
+    {
+        accelerations[i].x = 0;
+        accelerations[i].y = 0;
+        for (j = 0; j < bodies; j++)
+        {
+            if (i != j)
+            {
+                accelerations[i] = addVectors(accelerations[i], scaleVector(GravConstant * masses[j] / pow(mod(subtractVectors(positions[i], positions[j])), 3), subtractVectors(positions[j], positions[i])));
+            }
+        }
+    }
+}
+
+void computeVelocitiesDefault()
+{
+    int i;
+
+    for (i = 0; i < bodies; i++)
+        velocities[i] = addVectors(velocities[i], scaleVector(DT, accelerations[i]));
+}
+
+void computePositionsDefault()
+{
+    int i;
+
+    for (i = 0; i < bodies; i++)
+        positions[i] = addVectors(positions[i], scaleVector(DT, velocities[i]));
+}
+
+void simulateDefault()
+{
+    computeAccelerationsDefault();
+    computePositionsDefault();
+    computeVelocitiesDefault();
+    resolveCollisionsDefault();
+}
+
+void defaultWorkflow(int argC, char* argV[])
+{
+    int i, j;
+
+    if (argC < 2)
+        printf("Usage : %s <file name containing system configuration data>", argV[0]);
+    else
+    {
+        initiateSystem(argV[1]);
+        printf("Body   :     x              y           vx              vy   ");
+        for (i = 0; i < timeSteps; i++)
+        {
+            printf("\nCycle %d\n", i + 1);
+            simulateDefault();
+            for (j = 0; j < bodies; j++)
+                printf("Body %d : %lf\t%lf\t%lf\t%lf\n", j + 1, positions[j].x, positions[j].y, velocities[j].x, velocities[j].y);
+        }
+    }
+}
+
 int main(int argC, char *argV[]) {
     int i, j;
+    clock_t start1, start2, end1, end2;
 
     thread_count = atoi(argV[2]);
 
@@ -189,6 +275,7 @@ int main(int argC, char *argV[]) {
     if (argC < 2) {
         printf("Usage : %s <file name containing system configuration data>", argV[0]);
     } else {
+        start1 = clock();
         initiateSystem(argV[1]);
         printf("Body   :     x              y           vx              vy   ");
         for (i = 0; i < timeSteps; i++) {
@@ -198,11 +285,35 @@ int main(int argC, char *argV[]) {
                 printf("Body %d : %lf\t%lf\t%lf\t%lf\n", j + 1, positions[j].x, positions[j].y, velocities[j].x, velocities[j].y);
             }
         }
+        end1 = clock();
     }
 
     thpool_destroy(tp);
 
     pthread_rwlock_destroy(&force_lock);
     pthread_rwlock_destroy(&swap_lock);
+
+    free(masses);
+    free(positions);
+    free(velocities);
+    free(accelerations);
+    free(forces);
+
+    start2 = clock();
+    defaultWorkflow(argC, argV);
+    end2 = clock();
+
+    free(masses);
+    free(positions);
+    free(velocities);
+    free(accelerations);
+    free(forces);
+
+    double seconds1 = (double)(end1 - start1) / CLOCKS_PER_SEC;
+    double seconds2 = (double)(end2 - start2) / CLOCKS_PER_SEC;
+
+    printf("Parralel version time: %f \n", seconds1);
+    printf("Sequential version time: %f \n", seconds2);
+
     return 0;
 }

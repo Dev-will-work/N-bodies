@@ -10,6 +10,7 @@
 #include <math.h> // ceil/floor
 #include <time.h>  // clock
 #include <pthread.h> // pthread functions
+#include <time.h>  // time
 
 typedef struct {
     double x, y;
