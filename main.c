@@ -123,8 +123,9 @@ void computeAccelerations(void* rank) {
                     part_force = forces[j][i];
                 }
                 accelerations[i] = addVectors(accelerations[i], part_force);
+                pthread_rwlock_unlock(&force_lock);
             }
-            pthread_rwlock_unlock(&force_lock);
+            
         }
     }
 }
